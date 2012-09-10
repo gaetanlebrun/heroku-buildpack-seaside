@@ -1,2 +1,9 @@
+#/bin/bash
+
+BUILD_PATH=$1
+
+cat << EOF
+---
 config_vars:
-  PATH: "build/CogVM:/usr/bin:/bin"
+  PATH: "$BUILD_PATH/Cog-linux:/usr/bin:/bin"
+EOF
