@@ -1,0 +1,97 @@
+#!/bin/bash
+
+#fail fast
+set -e
+
+if [ $# -eq 0 ]
+  then
+    echo "No arguments supplied" >&2
+    exit 1
+fi
+
+#Directories configuration
+BASE_PATH="$(cd $(dirname $0) && pwd)"
+BUILD_PATH=$1
+BUILD_CACHE=$2
+
+#PHARO_VM configuration
+PHARO_VM_ARCHIVE_URL="https://ci.lille.inria.fr/pharo/job/Cog-VM/Architecture=32,OS=linux/lastSuccessfulBuild/artifact/Cog-linux.zip"
+PHARO_VM_ARCHIVE="$(basename $PHARO_VM_ARCHIVE_URL)"
+PHARO_VM_PATH="$BUILD_PATH/$(basename $PHARO_VM_ARCHIVE_URL .zip)"
+PHARO_VM="$PHARO_VM_PATH/CogVM"
+PHARO_PARAM="-headless -nosound"
+
+#Input image configuration
+INPUT_URL="https://ci.lille.inria.fr/pharo/view/Pharo-Kernel%201.4/job/Pharo%20Kernel%201.4%20Gofer/lastSuccessfulBuild/artifact/PharoKernel-Gofer-1.4.zip"
+INPUT_NAME="$(basename $INPUT_URL .zip)"
+INPUT_IMAGE="$INPUT_NAME/$INPUT_NAME.image"
+INPUT_CHANGES="${INPUT_IMAGE%.*}.changes"
+
+#Output image configuration
+BUILD_SCRIPT="$BASE_PATH/seaside30.st"
+OUTPUT_NAME="HerokuSeaside30"
+OUTPUT_PATH="$BUILD_PATH/$OUTPUT_NAME"
+OUTPUT_IMAGE="$OUTPUT_PATH/$OUTPUT_NAME.image"
+OUTPUT_CHANGES="$OUTPUT_PATH/$OUTPUT_NAME.changes"
+OUTPUT_CACHE="$OUTPUT_PATH/package-cache"
+OUTPUT_DEBUG="$OUTPUT_PATH/PharoDebug.log"
+OUTPUT_DUMP="$OUTPUT_PATH/crash.dmp"
+
+# prepare VM
+echo "<----- Prepare VM"
+mkdir -p $PHARO_VM_PATH
+curl $PHARO_VM_ARCHIVE_URL -o $PHARO_VM_ARCHIVE
+unzip -o $PHARO_VM_ARCHIVE -d $PHARO_VM_PATH
+
+# prepare output path
+echo "<----- Prepare output path"
+if [ -d "$OUTPUT_PATH" ] ; then
+	rm -rf "$OUTPUT_PATH"
+fi
+mkdir -p "$OUTPUT_PATH"
+mkdir -p "$BUILD_CACHE/${JOB_NAME:=$OUTPUT_NAME}"
+ln -sf "$BUILD_CACHE/${JOB_NAME:=$OUTPUT_NAME}" "$OUTPUT_CACHE"
+
+# prepare image file and sources  
+echo "<----- Prepare image file and sources"
+curl $INPUT_URL -o $INPUT_NAME.zip
+unzip -o $INPUT_NAME.zip
+cp "$INPUT_IMAGE" "$OUTPUT_IMAGE"
+cp "$INPUT_CHANGES" "$OUTPUT_CHANGES"
+cp $INPUT_NAME/PharoV10.sources $OUTPUT_PATH
+cp $BUILD_SCRIPT $OUTPUT_PATH
+
+# clean base path
+echo "<----- Remove unused files"
+rm -rf $INPUT_NAME
+rm $INPUT_NAME.zip
+rm $PHARO_VM_ARCHIVE
+
+# build image in the background
+echo "<----- Build image in the background"
+exec "$PHARO_VM" $PHARO_PARAM "$OUTPUT_IMAGE" "$BUILD_SCRIPT" &
+
+# wait for the process to terminate, or a debug log
+if [ $! ] ; then
+	while kill -0 $! 2> /dev/null ; do
+		if [ -f "$OUTPUT_DUMP" ] || [ -f "$OUTPUT_DEBUG" ] ; then
+			sleep 5
+			kill -s SIGKILL $! 2> /dev/null
+			if [ -f "$OUTPUT_DUMP" ] ; then
+				echo "<----- $(basename $0): VM aborted ($PHARO_VM)"
+				cat "$OUTPUT_DUMP" | tr '\r' '\n' | sed 's/^/  /'
+			elif [ -f "$OUTPUT_DEBUG" ] ; then
+				echo "<----- $(basename $0): Execution aborted ($PHARO_VM)"
+				cat "$OUTPUT_DEBUG" | tr '\r' '\n' | sed 's/^/  /'
+			fi
+			exit 1
+		fi
+		sleep 1
+	done
+else
+	echo "<----- $(basename $0): unable to start VM ($PHARO_VM)"
+	exit 1
+fi
+
+echo "<----- Build successful"
+exit 0

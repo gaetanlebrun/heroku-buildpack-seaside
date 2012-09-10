@@ -1,0 +1,11 @@
+#!/bin/bash
+
+BUILD_DIR="$(cd $1 && pwd)"
+
+if [ -f $BUILD_DIR/setup.st ]; then
+  echo "Seaside image setup script detected"  
+  exit 0
+else
+  echo "No setup script detected" >&2
+  exit 1
+fi
