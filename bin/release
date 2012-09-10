@@ -6,4 +6,5 @@ cat << EOF
 ---
 config_vars:
   PATH: "$BUILD_PATH/Cog-linux:/usr/bin:/bin"
+  web: "CogVM $BUILD_PATH/HerokuSeaside30.image setup.st"
 EOF
